@@ -72,62 +72,97 @@ const LASED_SYSTEM_INSTRUCTION = `
 - ប្រសិនបើមានទិន្នន័យស្រាវជ្រាវ ឬអាកាសធាតុ ភ្ជាប់ប្រភពជាក់ស្តែងជូនកសិករ។
 `;
 
-// Resilient model caller with retry and smart parameter degradation
-async function generateContentResilient(params: any) {
-  const preferredModel = params.model || 'gemini-3.8-flash';
-  
-  // Attempt 1: Full config with preferred model (gemini-3.8-flash)
-  try {
-    const response = await ai.models.generateContent({
-      ...params,
-      model: preferredModel,
-    });
-    return response;
-  } catch (err: any) {
-    console.warn(`Primary attempt with ${preferredModel} failed:`, err?.message || err);
-  }
+function isQuotaOrRateLimitError(err: any): boolean {
+  if (!err) return false;
+  const str = (typeof err === 'string' ? err : err.message || JSON.stringify(err)).toLowerCase();
+  return (
+    str.includes('429') ||
+    str.includes('resource_exhausted') ||
+    str.includes('quota') ||
+    str.includes('rate limit') ||
+    str.includes('limit exceeded')
+  );
+}
 
-  // Attempt 2: If tools (like googleSearch) failed or had quota issue, try without tools
-  if (params.config?.tools) {
-    try {
-      const configNoTools = { ...params.config };
+// Resilient model caller with retry, smart parameter degradation, and multi-model quota failover
+async function generateContentResilient(params: any): Promise<any> {
+  const preferredModel = params.model || 'gemini-3.8-flash';
+
+  // Candidate models in priority order
+  const fallbackModels = [
+    preferredModel,
+    'gemini-2.5-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash-lite'
+  ].filter((m, i, arr) => arr.indexOf(m) === i);
+
+  let lastError: any = null;
+
+  for (const model of fallbackModels) {
+    const isGemini3 = model.startsWith('gemini-3');
+
+    // Build config variants for this model
+    const candidateConfigs: any[] = [];
+
+    // Variant 1: Original requested config (sanitized for model support)
+    const baseConfig = { ...(params.config || {}) };
+    if (!isGemini3) {
+      delete baseConfig.thinkingConfig; // Only Gemini 3+ supports thinkingConfig
+    } else if (model === 'gemini-3.1-flash-lite' && baseConfig.thinkingConfig?.thinkingLevel === ThinkingLevel.HIGH) {
+      baseConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+    }
+    candidateConfigs.push(baseConfig);
+
+    // Variant 2: Without tools (in case googleSearch or tool quota fails)
+    if (baseConfig.tools) {
+      const configNoTools = { ...baseConfig };
       delete configNoTools.tools;
-      const response = await ai.models.generateContent({
-        ...params,
-        model: preferredModel,
-        config: configNoTools
-      });
-      return response;
-    } catch (err: any) {
-      console.warn(`Attempt without tools failed:`, err?.message || err);
+      candidateConfigs.push(configNoTools);
+    }
+
+    // Variant 3: Low/minimal thinking without tools
+    if (isGemini3) {
+      const configLowThinking = { ...baseConfig };
+      delete configLowThinking.tools;
+      if (model === 'gemini-3.1-flash-lite') {
+        configLowThinking.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+      } else {
+        configLowThinking.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+      }
+      candidateConfigs.push(configLowThinking);
+    }
+
+    // Try configs for this model
+    for (const config of candidateConfigs) {
+      try {
+        const response = await ai.models.generateContent({
+          ...params,
+          model,
+          config,
+        });
+
+        if (response && (response.text || response.candidates?.length)) {
+          (response as any).actualModelUsed = model;
+          return response;
+        }
+      } catch (err: any) {
+        lastError = err;
+        if (isQuotaOrRateLimitError(err)) {
+          console.warn(`Model ${model} hit quota limit (429). Switching immediately to next fallback model...`);
+          // Break immediately from this model's config variants to next model
+          break;
+        }
+      }
     }
   }
 
-  // Attempt 3: Try with ThinkingLevel.LOW
-  try {
-    const configLowThinking = { ...params.config };
-    delete configLowThinking.tools;
-    configLowThinking.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
-    const response = await ai.models.generateContent({
-      ...params,
-      model: preferredModel,
-      config: configLowThinking
-    });
-    return response;
-  } catch (err: any) {
-    console.warn(`Attempt with low thinking failed:`, err?.message || err);
-  }
+  console.error('All model attempts exhausted in generateContentResilient. Last error:', lastError?.message || lastError);
 
-  // Attempt 4: Fall back to gemini-3.1-flash-lite without thinkingConfig
-  const configClean = { ...params.config };
-  delete configClean.thinkingConfig;
-  delete configClean.tools;
-  const response = await ai.models.generateContent({
-    ...params,
-    model: 'gemini-3.1-flash-lite',
-    config: configClean
-  });
-  return response;
+  // Return graceful agricultural fallback response instead of failing
+  return {
+    text: `🌾 សូមអភ័យទោសបងប្អូនកសិករ! ដោយសារចំនួនអ្នកសួរច្រើនលើសកម្រិតកំណត់ប្រចាំថ្ងៃ (Daily Quota Limit) នៃគម្រោងឥតគិតថ្លៃរបស់ប្រព័ន្ធ ប្រព័ន្ធកំពុងដំណើរការផ្ទុកលើសទម្ងន់បណ្តោះអាសន្ន។\n\n📌 **ដំណោះស្រាយបឋម៖**\n- សូមរង់ចាំប្រមាណ ២-៣ នាទី រួចសាកល្បងសួរម្តងទៀត\n- សម្រាប់បញ្ហាជំងឺដំណាំ ឬសត្វបន្ទាន់ សូមពិនិត្យផ្ទាំង **"បច្ចេកទេស ៤ ដំណាំ ៥ សត្វ"** ឬទាក់ទងមន្ត្រីកសិកម្មឃុំប្រចាំតំបន់ LASED III\n- ឬកំណត់ API Key ដែលមាន Quota ខ្ពស់ក្នុងផ្ទាំង Settings។`,
+    actualModelUsed: 'offline-graceful-fallback',
+  };
 }
 
 app.post('/api/chat', async (req: Request, res: Response) => {
@@ -195,7 +230,9 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     res.json({
       reply: response.text || 'សូមអភ័យទោស ខ្ញុំមិនអាចដំណើរការចម្លើយបានទេ។ សូមសាកល្បងសួរសារជាថ្មី។',
       sources: sources,
-      modelUsed: 'gemini-3.8-flash (Advanced Agricultural Reasoner)'
+      modelUsed: response.actualModelUsed
+        ? `${response.actualModelUsed} (Smart Failover)`
+        : 'gemini-3.8-flash (Advanced Agricultural Reasoner)'
     });
   } catch (error: any) {
     console.error('Chat API Error:', error);
@@ -326,21 +363,25 @@ app.post('/api/voice', async (req: Request, res: Response) => {
       },
     };
 
-    // First transcribe the audio into Khmer text
-    const transcribeResponse = await ai.models.generateContent({
-      model: 'gemini-3.5-transcribe',
-      contents: {
-        parts: [
-          audioPart,
-          { text: 'សូមចម្លងសម្លេងនេះជាអត្ថបទភាសាខ្មែរឱ្យបានត្រឹមត្រូវបំផុត (Transcribe this Khmer voice recording into text accurately). If there is background noise, transcribe only the spoken question.' }
-        ]
-      }
-    });
+    // Step 1: Transcribe using resilient caller
+    let transcript = '';
+    try {
+      const transcribeResponse = await generateContentResilient({
+        model: 'gemini-3.5-transcribe',
+        contents: {
+          parts: [
+            audioPart,
+            { text: 'សូមចម្លងសម្លេងនេះជាអត្ថបទភាសាខ្មែរឱ្យបានត្រឹមត្រូវបំផុត (Transcribe this Khmer voice recording into text accurately).' }
+          ]
+        }
+      });
+      transcript = (transcribeResponse.text || '').trim();
+    } catch (e: any) {
+      console.warn('Voice transcribe error:', e?.message || e);
+    }
 
-    const transcript = (transcribeResponse.text || '').trim();
-
-    // Step 2: Answer the question using the expert prompt
-    const answerResponse = await ai.models.generateContent({
+    // Step 2: Answer the question using resilient caller
+    const answerResponse = await generateContentResilient({
       model: 'gemini-3.8-flash',
       contents: `សំណួររបស់កសិករតាមរយៈសម្លេង៖ "${transcript || 'កសិករបានសួរសំណួរអំពីការដាំដុះដំណាំ និងចិញ្ចឹមសត្វ'}"\n\nសូមឆ្លើយតបជាភាសាខ្មែរដោយខ្លី ខ្លឹម ច្បាស់លាស់ និងអនុវត្តបានភ្លាមៗ។`,
       config: {
@@ -382,37 +423,17 @@ app.post('/api/transcribe', async (req: Request, res: Response) => {
       },
     };
 
-    let transcript = '';
+    const transcribeResponse = await generateContentResilient({
+      model: 'gemini-3.5-transcribe',
+      contents: {
+        parts: [
+          audioPart,
+          { text: 'សូមចម្លងសម្លេងកសិករនេះជាអត្ថបទភាសាខ្មែរឱ្យបានសុក្រឹត និងត្រឹមត្រូវតាមអក្ខរាវិរុទ្ធខ្មែរ (Transcribe this Khmer voice recording into clean Khmer text accurately). Return ONLY the transcribed text in Khmer without explanation.' }
+        ]
+      }
+    });
 
-    // Primary: Try gemini-3.5-transcribe
-    try {
-      const transcribeResponse = await ai.models.generateContent({
-        model: 'gemini-3.5-transcribe',
-        contents: {
-          parts: [
-            audioPart,
-            { text: 'សូមចម្លងសម្លេងកសិករនេះជាអត្ថបទភាសាខ្មែរឱ្យបានសុក្រឹត និងត្រឹមត្រូវតាមអក្ខរាវិរុទ្ធខ្មែរ (Transcribe this Khmer voice recording into clean Khmer text accurately). Return ONLY the transcribed text in Khmer without explanation or quotes.' }
-          ]
-        }
-      });
-      transcript = (transcribeResponse.text || '').trim();
-    } catch (e: any) {
-      console.warn('gemini-3.5-transcribe failed in /api/transcribe, falling back to gemini-3.8-flash:', e?.message);
-    }
-
-    // Fallback: gemini-3.8-flash
-    if (!transcript) {
-      const fallbackResponse = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: {
-          parts: [
-            audioPart,
-            { text: 'សូមចម្លងសម្លេងកសិករនេះជាអក្សរខ្មែរឱ្យបានត្រឹមត្រូវ (Transcribe this Khmer audio to Khmer text). Return ONLY the transcribed Khmer text.' }
-          ]
-        }
-      });
-      transcript = (fallbackResponse.text || '').trim();
-    }
+    const transcript = (transcribeResponse.text || '').trim();
 
     res.json({
       text: transcript,
