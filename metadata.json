@@ -1,0 +1,6 @@
+{
+  "name": "LASEDIII_Help_Bot - ជំនួយការកសិកម្មឆ្លាតវៃ",
+  "description": "តេលេក្រាម Bot និងជំនួយការឆ្លាតវៃសម្រាប់កសិករគម្រោង LASED III ក្នុងការដោះស្រាយបញ្ហាបច្ចេកទេសដាំដុះដំណាំ (ស្រូវ បន្លែ កៅស៊ូ ចន្ទី) និងចិញ្ចឹមសត្វ (គោ ក្របី ជ្រូក មាន់ទា ត្រី) តាមរយៈ Chat, Voice និងវិភាគរូបភាពជំងឺរហ័ស។",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
