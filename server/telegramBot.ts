@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { userTracker, CAMBODIA_PROVINCES } from './userTracker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,8 @@ class TelegramBotManager {
   private aiCaller: ((prompt: string, imageBase64?: string, audioBase64?: string) => Promise<string>) | null = null;
   private ttsCaller: ((text: string) => Promise<Buffer | null>) | null = null;
   private lastReplies: Map<string, string> = new Map();
+  private processedMessageIds: Set<string> = new Set();
+  private processedUpdateIds: Set<number> = new Set();
 
   constructor() {
     this.loadConfig();
@@ -370,6 +373,15 @@ class TelegramBotManager {
 
   // Process a single Telegram update (used by both Polling and Webhook)
   public async processIncomingUpdate(update: any) {
+    if (update?.update_id) {
+      if (this.processedUpdateIds.has(update.update_id)) return;
+      this.processedUpdateIds.add(update.update_id);
+      if (this.processedUpdateIds.size > 300) {
+        const first = this.processedUpdateIds.values().next().value;
+        if (first !== undefined) this.processedUpdateIds.delete(first);
+      }
+    }
+
     // 0. Handle Inline Button Callback Queries (e.g. Listen Audio button)
     if (update?.callback_query) {
       const cb = update.callback_query;
@@ -408,26 +420,84 @@ class TelegramBotManager {
     const message = update?.message || update?.channel_post;
     if (!message) return;
 
+    const chatId = message.chat?.id;
+    if (chatId && message.message_id) {
+      const msgKey = `${chatId}_${message.message_id}`;
+      if (this.processedMessageIds.has(msgKey)) return;
+      this.processedMessageIds.add(msgKey);
+      if (this.processedMessageIds.size > 300) {
+        const first = this.processedMessageIds.values().next().value;
+        if (first !== undefined) this.processedMessageIds.delete(first);
+      }
+    }
+
     this.updatesProcessed++;
     this.lastActive = new Date().toISOString();
 
-    const chatId = message.chat?.id;
     const senderName = message.from?.first_name || message.chat?.title || 'កសិករ';
-    const text = message.text || message.caption || '';
+    const senderId = `tg_${message.from?.id || chatId}`;
+    const username = message.from?.username ? `@${message.from.username}` : undefined;
 
-    // Standard Quick Reply Keyboard
+    // Track user session and activity in Admin Tracker
+    userTracker.recordUserActivity(
+      {
+        id: senderId,
+        platform: 'telegram',
+        name: senderName,
+        username: username
+      },
+      message.location ? 'location_share' : (message.photo ? 'photo_diagnosis' : (message.voice || message.audio ? 'voice_query' : 'message')),
+      text || (message.photo ? 'រូបភាពស្កេនជំងឺ' : (message.location ? 'ទីតាំង GPS' : 'សារសម្លេង')),
+      message.photo ? 'crop' : 'general'
+    );
+
+    // Standard Quick Reply Keyboard with native GPS Location sharing button
     const standardKeyboard = {
       keyboard: [
+        [{ text: '📍 ផ្ញើទីតាំងកសិដ្ឋាន (GPS)', request_location: true }, { text: '🔊 ស្តាប់សម្លេងចុងក្រោយ' }],
         [{ text: '🌾 ដំណាំស្រូវ' }, { text: '🥬 ដំណាំបន្លែ' }],
         [{ text: '🌳 ដំណាំកៅស៊ូ' }, { text: '🥜 ដំណាំចន្ទី' }],
         [{ text: '🐂 គោ និងក្របី' }, { text: '🐖 ជ្រូក' }],
         [{ text: '🐔 មាន់ទា' }, { text: '🐟 ត្រី' }],
-        [{ text: '🔊 ស្តាប់សម្លេងចុងក្រោយ' }, { text: '📸 របៀបថតរូបស្កេនជំងឺ' }],
-        [{ text: 'ℹ️ អំពីគម្រោង LASED III' }]
+        [{ text: '📸 របៀបថតរូបស្កេនជំងឺ' }, { text: 'ℹ️ អំពីគម្រោង LASED III' }]
       ],
       resize_keyboard: true,
       persistent: true
     };
+
+    // Handle Native GPS Location sent by farmer
+    if (message.location) {
+      const { latitude, longitude, horizontal_accuracy } = message.location;
+      const loc = userTracker.recordLocation(
+        senderId,
+        latitude,
+        longitude,
+        'telegram_gps',
+        horizontal_accuracy,
+        { name: senderName, username, platform: 'telegram' }
+      );
+      this.addLog('info', `បានចាប់ទីតាំង GPS: ខេត្ត${loc.province} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`, senderName);
+
+      const isTarget = loc.isTargetProvince;
+      const replyLocation = `📍 **បានកត់ត្រាទីតាំងកសិដ្ឋានដោយជោគជ័យ!** 🙏\n\n` +
+        `🏡 ទីតាំងកសិដ្ឋាន៖ **ខេត្ត${loc.province}** ${isTarget ? '(ខេត្តគោលដៅអនុវត្តគម្រោង LASED III ✅)' : '(ក្រៅខេត្តគោលដៅ)'}\n` +
+        `🌐 កូអរដោនេ GPS៖ \`${latitude.toFixed(4)}, ${longitude.toFixed(4)}\` (កម្រិតលម្អិត: ±${horizontal_accuracy ? Math.round(horizontal_accuracy) : 10}m)\n\n` +
+        `🌾 អរគុណកសិករ **${senderName}**! ប្រព័ន្ធ AI និងមន្ត្រីបច្ចេកទេសគម្រោង LASED III (MLMUPC & MAFF) បានកត់ត្រាទីតាំងក្នុងផ្ទាំងគ្រប់គ្រង Admin រួចរាល់ហើយ ដើម្បីងាយស្រួលផ្តល់ការគាំទ្របច្ចេកទេស និងព័ត៌មានអាកាសធាតុស្របតាមតំបន់ជាក់ស្តែងរបស់លោកអ្នក!`;
+
+      this.lastReplies.set(String(chatId), replyLocation);
+      await this.sendMessage(chatId, replyLocation, standardKeyboard);
+      return;
+    }
+
+    // Auto-detect target province mention in text if user has not sent GPS yet
+    if (text) {
+      for (const prov of CAMBODIA_PROVINCES) {
+        if (text.includes(prov.nameKh)) {
+          userTracker.assignProvince(senderId, prov.nameKh, { name: senderName, platform: 'telegram' });
+          break;
+        }
+      }
+    }
 
     const listenInlineMarkup = {
       inline_keyboard: [
@@ -501,13 +571,15 @@ class TelegramBotManager {
 
       if (downloaded && this.aiCaller) {
         try {
-          const prompt = `កសិករខ្មែរឈ្មោះ ${senderName} បានផ្ញើរូបភាពនេះមកតាម Telegram។ សូមវិភាគជំងឺដំណាំ ឬសត្វក្នុងរូបភាពនេះ ដោយបង្ហាញ៖
-១. ឈ្មោះជំងឺ និងកម្រិតធ្ងន់ធ្ងរ
-២. រោគសញ្ញាសំខាន់ៗ
-៣. ដំណោះស្រាយបន្ទាន់ ៣ ជំហានដែលត្រូវធ្វើថ្ងៃនេះ
-៤. វិធីសាស្ត្រធម្មជាតិ (ជី/ថ្នាំសរីរាង្គ)
-៥. ថ្នាំកសិកម្ម ឬពេទ្យសត្វដែលមានការអនុញ្ញាត និងការការពាររយៈពេលវែង។
-សូមឆ្លើយជាភាសាខ្មែរ រួសរាយ រាក់ទាក់ ច្បាស់លាស់ ងាយយល់។`;
+          const prompt = `រូបភាពនេះផ្ញើមកពីកសិករគម្រោង LASED III (${senderName})។
+សូមវិភាគរូបភាពកសិកម្មនេះដោយផ្ទាល់ និងឱ្យចំប្រធានបទ ១០០%៖
+១. ពិនិត្យឱ្យច្បាស់ជាដំបូងថាតើរូបភាពនេះជាដំណាំ (ដូចជា ស្ពៃ, បន្លែ, ស្រូវ, កៅស៊ូ, ចន្ទី...) ឬជាសត្វពាហនៈ?
+   - ដាច់ខាតមិនត្រូវឆ្លើយច្រឡំរវាងដំណាំ និងសត្វឡើយ! បើរូបភាពជាស្លឹក ឬកូនដំណាំ ត្រូវឆ្លើយតែអំពីជំងឺដំណាំប៉ុណ្ណោះ ហាមនិយាយរឿងសត្វ។
+២. បញ្ជាក់ឈ្មោះជំងឺ និងរោគសញ្ញាសំខាន់ៗ (ឧទាហរណ៍៖ ជំងឺរលួយគល់, ជំងឺអុចស្លឹក, ស្រពោន, ខ្វះជីវជាតិ...)
+៣. មូលហេតុបង្កចម្បង (ផ្សិត, បាក់តេរី, សំណើមដីខ្ពស់ជាំទឹក...)
+៤. ដំណោះស្រាយបន្ទាន់ ៣ ជំហានដែលត្រូវធ្វើថ្ងៃនេះ
+៥. វិធីសាស្ត្រធម្មជាតិ (ផ្សិតទ្រីកូដឺម៉ា, ថ្នាំរុក្ខជាតិ) និងថ្នាំកសិកម្មសុវត្ថិភាព។
+សូមឆ្លើយជាភាសាខ្មែរ រួសរាយ រាក់ទាក់ ច្បាស់លាស់ និងចំគោលដៅបំផុត។`;
           
           const reply = await this.aiCaller(prompt, downloaded.base64);
           this.lastReplies.set(String(chatId), reply);

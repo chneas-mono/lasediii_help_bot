@@ -9,9 +9,10 @@ import { DiseaseScannerView } from './components/DiseaseScannerView';
 import { KnowledgeBaseView } from './components/KnowledgeBaseView';
 import { TelegramConnectModal } from './components/TelegramConnectModal';
 import { AgriFAQSection } from './components/AgriFAQSection';
+import { AdminTrackerView } from './components/AdminTrackerView';
 import { DiagnosisResult } from './types/agri';
 
-type ActiveTab = 'bot' | 'scanner' | 'knowledge' | 'about';
+type ActiveTab = 'bot' | 'scanner' | 'knowledge' | 'about' | 'admin';
 
 const HERO_IMAGE_URL = '/src/assets/images/lased_farmer_hero_1793943724008.jpg';
 const CROPS_IMAGE_URL = '/src/assets/images/cambodia_crops_collage_1793943724736.jpg';
@@ -110,6 +111,17 @@ export default function App() {
           >
             អំពីគម្រោង LASED III
           </button>
+          <button
+            onClick={() => setActiveTab('admin')}
+            className={`transition-colors whitespace-nowrap shrink-0 pb-0.5 flex items-center gap-1.5 ${
+              activeTab === 'admin'
+                ? 'text-emerald-700 dark:text-emerald-400 font-semibold border-b-2 border-emerald-600'
+                : 'hover:text-slate-900 dark:hover:text-white text-emerald-800/90 dark:text-emerald-300'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>ផ្ទាំងគ្រប់គ្រង Admin (Tracker)</span>
+          </button>
         </nav>
 
         {/* Zone 3: 1 Primary Action + Theme Toggle */}
@@ -175,10 +187,23 @@ export default function App() {
         >
           ℹ️ គម្រោង
         </button>
+        <button
+          onClick={() => setActiveTab('admin')}
+          className={`flex-1 py-1.5 px-2.5 text-xs font-medium rounded-lg whitespace-nowrap ${
+            activeTab === 'admin'
+              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          🛡️ Admin
+        </button>
       </div>
 
       {/* Main Content Area */}
       <main className="flex-1 p-3 sm:p-6 lg:p-8">
+        {activeTab === 'admin' && (
+          <AdminTrackerView />
+        )}
         {activeTab === 'bot' && (
           <TelegramBotView
             onOpenScannerTab={() => setActiveTab('scanner')}

@@ -3,7 +3,7 @@ import {
   Send, Mic, MicOff, Paperclip, Camera, Image as ImageIcon, 
   Volume2, StopCircle, RefreshCw, Sparkles, Check, ChevronRight,
   MoreVertical, PhoneCall, HelpCircle, AlertCircle, FileText, X,
-  AudioWaveform, Waves, RotateCcw
+  AudioWaveform, Waves, RotateCcw, MapPin
 } from 'lucide-react';
 import { ChatMessage, DiagnosisResult } from '../types/agri';
 import { QUICK_QUESTIONS, SAMPLE_DIAGNOSIS_CASES } from '../data/agriKnowledge';
@@ -49,6 +49,102 @@ export const TelegramBotView: React.FC<Props> = ({
   const [thinkingMode, setThinkingMode] = useState<'high' | 'low'>('high');
   const [enableSearch, setEnableSearch] = useState<boolean>(true);
   const [botStatus, setBotStatus] = useState<{ configured: boolean; connected: boolean; username?: string; isPolling?: boolean } | null>(null);
+
+  // Web Farmer User & Location Tracking State (Admin Monitoring integration)
+  const [webUserId] = useState<string>(() => {
+    try {
+      const existing = localStorage.getItem('lased_web_user_id');
+      if (existing) return existing;
+      const newId = `web_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      localStorage.setItem('lased_web_user_id', newId);
+      return newId;
+    } catch {
+      return `web_${Date.now()}`;
+    }
+  });
+
+  const [webLocation, setWebLocation] = useState<{ province: string; lat: number; lng: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem('lased_web_location');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isLocating, setIsLocating] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [locationToast, setLocationToast] = useState<string | null>(null);
+
+  const handleShareLocation = () => {
+    if (!navigator.geolocation) {
+      setShowLocationPicker(true);
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await fetch('/api/tracker/location', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: webUserId,
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+              platform: 'web',
+              name: 'កសិករ Web'
+            })
+          });
+          const data = await res.json();
+          if (data.success && data.location) {
+            const loc = { province: data.location.province, lat: data.location.latitude, lng: data.location.longitude };
+            setWebLocation(loc);
+            try { localStorage.setItem('lased_web_location', JSON.stringify(loc)); } catch (_) {}
+            setLocationToast(`✅ បានចាប់ទីតាំង GPS៖ ខេត្ត${loc.province} (${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)})`);
+            setTimeout(() => setLocationToast(null), 5000);
+          }
+        } catch (err) {
+          console.warn('Location capture error:', err);
+          setShowLocationPicker(true);
+        } finally {
+          setIsLocating(false);
+        }
+      },
+      (err) => {
+        console.warn('Geolocation permission denied or timed out:', err);
+        setIsLocating(false);
+        setShowLocationPicker(true);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
+
+  const handleSelectProvince = async (provName: string) => {
+    try {
+      const res = await fetch('/api/tracker/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: webUserId,
+          province: provName,
+          platform: 'web',
+          name: 'កសិករ Web'
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.location) {
+        const loc = { province: data.location.province, lat: data.location.latitude, lng: data.location.longitude };
+        setWebLocation(loc);
+        try { localStorage.setItem('lased_web_location', JSON.stringify(loc)); } catch (_) {}
+        setLocationToast(`✅ បានកត់ត្រាទីតាំងកសិដ្ឋាន៖ ខេត្ត${loc.province}`);
+        setShowLocationPicker(false);
+        setTimeout(() => setLocationToast(null), 5000);
+      }
+    } catch (err) {
+      console.warn('Province assign error:', err);
+    }
+  };
 
   // Real-time Voice-to-Text Dictation State
   const [isDictating, setIsDictating] = useState(false);
@@ -219,7 +315,9 @@ export const TelegramBotView: React.FC<Props> = ({
             content: m.text
           })),
           thinkingMode,
-          enableSearch
+          enableSearch,
+          userId: webUserId,
+          userName: 'កសិករ Web'
         })
       });
 
@@ -720,6 +818,23 @@ export const TelegramBotView: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Share Farm Location Button */}
+          <button
+            onClick={handleShareLocation}
+            disabled={isLocating}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5 ${
+              webLocation
+                ? 'bg-emerald-700/90 hover:bg-emerald-700 text-white border border-emerald-400/40'
+                : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-sm'
+            }`}
+            title={webLocation ? `ទីតាំង៖ ខេត្ត${webLocation.province} (${webLocation.lat.toFixed(4)}, ${webLocation.lng.toFixed(4)})` : 'ចុចចែករំលែកទីតាំងកសិដ្ឋាន GPS'}
+          >
+            <MapPin className={`w-3.5 h-3.5 ${isLocating ? 'animate-bounce text-amber-300' : 'text-white'}`} />
+            <span>
+              {isLocating ? 'កំពុងចាប់ GPS...' : webLocation ? `📍 ខេត្ត${webLocation.province}` : '📍 ទីតាំងកសិដ្ឋាន (GPS)'}
+            </span>
+          </button>
+
           <button
             onClick={onOpenConnectModal}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-xl text-xs font-semibold backdrop-blur-sm transition-colors text-white"
@@ -736,6 +851,19 @@ export const TelegramBotView: React.FC<Props> = ({
           </button>
         </div>
       </div>
+
+      {/* Location Toast Notification */}
+      {locationToast && (
+        <div className="px-4 py-2 bg-emerald-600 text-white text-xs font-medium flex items-center justify-between shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <MapPin className="w-4 h-4 shrink-0 text-amber-300" />
+            <span>{locationToast}</span>
+          </div>
+          <button onClick={() => setLocationToast(null)} className="text-white/80 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Telegram Real-App Connection Status Banner */}
       <div className={`px-4 py-2 text-xs flex items-center justify-between gap-2 border-b shrink-0 ${
@@ -1233,6 +1361,60 @@ export const TelegramBotView: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {/* Manual Farm Province Selection Modal */}
+      {showLocationPicker && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm">
+                <MapPin className="w-4 h-4 text-emerald-600" />
+                <span>ជ្រើសរើសខេត្តកសិដ្ឋានរបស់អ្នក (គម្រោង LASED III)</span>
+              </div>
+              <button
+                onClick={() => setShowLocationPicker(false)}
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 flex items-center justify-center"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              សូមជ្រើសរើសខេត្តដែលកសិដ្ឋាន ឬដីកសិកម្មរបស់អ្នកស្ថិតនៅ ដើម្បីឱ្យ Bot និងមន្ត្រីគម្រោង LASED III អាចផ្តល់បច្ចេកទេស និងតាមដានទីតាំងបានត្រឹមត្រូវ៖
+            </p>
+
+            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+              {[
+                'កំពង់ឆ្នាំង', 'បាត់ដំបង', 'បន្ទាយមានជ័យ', 'ឧត្តរមានជ័យ',
+                'ក្រចេះ', 'ស្ទឹងត្រែង', 'រតនគិរី', 'មណ្ឌលគិរី',
+                'កំពង់ធំ', 'ត្បូងឃ្មុំ', 'កំពង់ស្ពឺ', 'ព្រះសីហនុ',
+                'កំពត', 'កែប'
+              ].map((prov) => (
+                <button
+                  key={prov}
+                  onClick={() => handleSelectProvince(prov)}
+                  className={`p-2.5 rounded-xl text-xs font-medium text-left border transition-all ${
+                    webLocation?.province === prov
+                      ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 text-emerald-800 dark:text-emerald-200 font-semibold'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-emerald-50/50'
+                  }`}
+                >
+                  📍 ខេត្ត{prov}
+                </button>
+              ))}
+            </div>
+
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                onClick={() => setShowLocationPicker(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 rounded-xl"
+              >
+                បិទ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
