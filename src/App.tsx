@@ -292,11 +292,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-emerald-100 dark:border-emerald-900">
-                  <span className="text-slate-400 block text-[11px]">ខេត្តគោលដៅ៖</span>
-                  <strong className="text-slate-800 dark:text-slate-200">ក្រចេះ, ត្បូងឃ្មុំ, កំពង់ធំ, កំពង់ឆ្នាំង, ពោធិ៍សាត់, បាត់ដំបង</strong>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-emerald-100 dark:border-emerald-900">
                   <span className="text-slate-400 block text-[11px]">ដៃគូគាំទ្រ៖</span>
                   <strong className="text-slate-800 dark:text-slate-200">MAFF, MLMUPC, ធនាគារពិភពលោក (World Bank)</strong>
@@ -304,6 +300,27 @@ export default function App() {
                 <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-emerald-100 dark:border-emerald-900">
                   <span className="text-slate-400 block text-[11px]">ជំនួយការ AI Bot៖</span>
                   <strong className="text-slate-800 dark:text-slate-200">ដំណើរការ ២៤/៧ លើ Chat, Voice និង Scan</strong>
+                </div>
+                <div className="p-3.5 bg-white/90 dark:bg-slate-900/90 rounded-xl border border-emerald-100 dark:border-emerald-900 sm:col-span-2">
+                  <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-xs font-semibold mb-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>ខេត្តគោលដៅអនុវត្តគម្រោង (១៤ ខេត្ត)៖</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      'ខេត្តកំពង់ឆ្នាំង', 'បាត់ដំបង', 'បន្ទាយមានជ័យ', 'ឧត្តរមានជ័យ',
+                      'ក្រចេះ', 'ស្ទឹងត្រែង', 'រតនគិរី', 'មណ្ឌលគិរី',
+                      'កំពង់ធំ', 'ត្បូងឃ្មុំ', 'កំពង់ស្ពឺ', 'ព្រះសីហនុ',
+                      'កំពត', 'កែប'
+                    ].map((province) => (
+                      <span
+                        key={province}
+                        className="px-2.5 py-1 bg-emerald-100/70 dark:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 rounded-lg text-[11px] font-medium"
+                      >
+                        {province}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

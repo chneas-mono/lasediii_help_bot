@@ -392,8 +392,13 @@ export const TelegramBotView: React.FC<Props> = ({
       }, 1000);
 
     } catch (err) {
-      console.error('Microphone access error:', err);
-      alert('សូមអនុញ្ញាតសិទ្ធិប្រើប្រាស់មីក្រូហ្វូនក្នុងកម្មវិធីរុករករបស់អ្នក ដើម្បីអាចនិយាយសួរសំណួរផ្ទាល់បាន។');
+      console.warn('Microphone access notice:', err);
+      setMessages(prev => [...prev, {
+        id: `sys_mic_${Date.now()}`,
+        sender: 'bot',
+        text: '⚠️ សូមអនុញ្ញាតសិទ្ធិប្រើប្រាស់មីក្រូហ្វូនក្នុង Browser របស់អ្នក ដើម្បីអាចនិយាយសួរសំណួរផ្ទាល់បាន។',
+        timestamp: new Date().toLocaleTimeString('km-KH', { hour: '2-digit', minute: '2-digit' })
+      }]);
     }
   };
 
@@ -520,8 +525,13 @@ export const TelegramBotView: React.FC<Props> = ({
         setRecordingSeconds(s => s + 1);
       }, 1000);
     } catch (err) {
-      console.error('Microphone access denied:', err);
-      alert('សូមអនុញ្ញាតសិទ្ធិប្រើប្រាស់មីក្រូហ្វូនក្នុងកម្មវិធីរុករករបស់អ្នក ដើម្បីអាចផ្ញើសារជាសម្លេងបាន។');
+      console.warn('Microphone access notice:', err);
+      setMessages(prev => [...prev, {
+        id: `sys_mic_${Date.now()}`,
+        sender: 'bot',
+        text: '⚠️ សូមអនុញ្ញាតសិទ្ធិប្រើប្រាស់មីក្រូហ្វូនក្នុង Browser របស់អ្នក ដើម្បីអាចផ្ញើសារជាសម្លេងបាន។',
+        timestamp: new Date().toLocaleTimeString('km-KH', { hour: '2-digit', minute: '2-digit' })
+      }]);
     }
   };
 
@@ -593,13 +603,47 @@ export const TelegramBotView: React.FC<Props> = ({
     };
   };
 
-  // Play voice response using TTS
+  // Play voice response using Gemini TTS with resilient Web Speech Synthesis fallback
   const playMessageTTS = async (messageId: string, text: string) => {
-    if (playingAudioId === messageId && currentAudioRef.current) {
-      currentAudioRef.current.pause();
+    // If clicking on active playing audio, toggle pause/stop
+    if (playingAudioId === messageId) {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
       setPlayingAudioId(null);
       return;
     }
+
+    // Helper to speak text using browser native speech synthesis
+    const speakViaBrowserSynthesis = (rawText: string) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        setPlayingAudioId(null);
+        return;
+      }
+
+      window.speechSynthesis.cancel();
+      const clean = rawText
+        .replace(/[*#_`>~-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 300);
+
+      const utterance = new SpeechSynthesisUtterance(clean);
+      const voices = window.speechSynthesis.getVoices();
+      const khmerVoice = voices.find(v => v.lang.startsWith('km') || v.lang.includes('Khmer'));
+      if (khmerVoice) {
+        utterance.voice = khmerVoice;
+      }
+      utterance.rate = 0.95; // Slightly slower for clarity
+      utterance.onend = () => setPlayingAudioId(null);
+      utterance.onerror = () => setPlayingAudioId(null);
+
+      setPlayingAudioId(messageId);
+      window.speechSynthesis.speak(utterance);
+    };
 
     try {
       setTtsLoadingId(messageId);
@@ -609,10 +653,9 @@ export const TelegramBotView: React.FC<Props> = ({
         body: JSON.stringify({ text })
       });
 
-      if (!res.ok) throw new Error('TTS failed');
-      const data = await res.json();
+      const data = res.ok ? await res.json() : null;
 
-      if (data.audioBase64) {
+      if (data?.audioBase64) {
         const audioSrc = `data:${data.mimeType || 'audio/wav'};base64,${data.audioBase64}`;
         if (currentAudioRef.current) {
           currentAudioRef.current.pause();
@@ -620,12 +663,19 @@ export const TelegramBotView: React.FC<Props> = ({
         const audio = new Audio(audioSrc);
         currentAudioRef.current = audio;
         audio.onended = () => setPlayingAudioId(null);
-        audio.onerror = () => setPlayingAudioId(null);
+        audio.onerror = () => {
+          // If audio playback errors, fall back to browser speech synthesis
+          speakViaBrowserSynthesis(text);
+        };
         await audio.play();
         setPlayingAudioId(messageId);
+      } else {
+        // Fall back to client browser speech synthesis
+        speakViaBrowserSynthesis(data?.text || text);
       }
     } catch (e) {
-      console.error('TTS playback error:', e);
+      console.warn('TTS server request notice, using local voice fallback:', e);
+      speakViaBrowserSynthesis(text);
     } finally {
       setTtsLoadingId(null);
     }

@@ -49,7 +49,7 @@ export const DiseaseScannerView: React.FC<Props> = ({ onSendToChat }) => {
         videoRef.current.play();
       }
     } catch (err: any) {
-      console.error('Camera error:', err);
+      console.warn('Camera notice:', err);
       setIsCameraActive(false);
       setError('មិនអាចបើកកាមេរ៉ាបានទេ៖ សូមពិនិត្យសិទ្ធិកាមេរ៉ាក្នុងកម្មវិធីរុករករបស់អ្នក ឬប្រើការបញ្ចូលរូបភាពជំនួសវិញ។');
     }
@@ -126,7 +126,7 @@ export const DiseaseScannerView: React.FC<Props> = ({ onSendToChat }) => {
       data.imageUrl = imgData;
       setDiagnosis(data);
     } catch (err: any) {
-      console.error('Diagnosis error:', err);
+      console.warn('Diagnosis notice:', err);
       setError('មានបញ្ហាក្នុងការវិភាគរូបភាព៖ ' + (err.message || 'សូមពិនិត្យមើលការភ្ជាប់អ៊ីនធឺណិត ហើយសាកល្បងម្តងទៀត។'));
     } finally {
       setAnalyzing(false);
@@ -159,10 +159,8 @@ export const DiseaseScannerView: React.FC<Props> = ({ onSendToChat }) => {
         body: JSON.stringify({ text: textToRead }),
       });
 
-      if (!response.ok) throw new Error('TTS failed');
-
-      const data = await response.json();
-      if (data.audioBase64) {
+      const data = response.ok ? await response.json() : null;
+      if (data?.audioBase64) {
         const audioUrl = `data:${data.mimeType || 'audio/wav'};base64,${data.audioBase64}`;
         if (audioRef.current) {
           audioRef.current.pause();
@@ -173,9 +171,16 @@ export const DiseaseScannerView: React.FC<Props> = ({ onSendToChat }) => {
         audio.onerror = () => setIsPlayingAudio(false);
         await audio.play();
         setIsPlayingAudio(true);
+      } else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        utterance.onend = () => setIsPlayingAudio(false);
+        utterance.onerror = () => setIsPlayingAudio(false);
+        setIsPlayingAudio(true);
+        window.speechSynthesis.speak(utterance);
       }
     } catch (err) {
-      console.error('Error playing audio:', err);
+      console.warn('Audio guide notice:', err);
     } finally {
       setAudioLoading(false);
     }

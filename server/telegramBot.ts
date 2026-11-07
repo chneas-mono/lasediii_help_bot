@@ -197,7 +197,7 @@ class TelegramBotManager {
       }
       return data.ok;
     } catch (err: any) {
-      console.error('Error sending Telegram message:', err);
+      console.warn('Error sending Telegram message:', err?.message || err);
       return false;
     }
   }
@@ -238,8 +238,8 @@ class TelegramBotManager {
       else if (filePath.endsWith('.mp3')) mimeType = 'audio/mp3';
 
       return { base64, mimeType };
-    } catch (err) {
-      console.error('Error downloading file from Telegram:', err);
+    } catch (err: any) {
+      console.warn('Error downloading file from Telegram:', err?.message || err);
       return null;
     }
   }
@@ -317,7 +317,7 @@ class TelegramBotManager {
         if (err.name === 'AbortError') {
           break;
         }
-        console.error('Polling error:', err?.message || err);
+        console.warn('Polling notice:', err?.message || err);
         await new Promise(r => setTimeout(r, 4000));
       }
     }
@@ -357,7 +357,7 @@ class TelegramBotManager {
     }
 
     if (text === 'ℹ️ អំពីគម្រោង LASED III') {
-      const about = `ℹ️ **អំពីគម្រោង LASED III**\n\nគម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ជំហាន៣ (LASED III) ដឹកនាំដោយក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) និងក្រសួងរៀបចំដែនដី (MLMUPC) ក្រោមការគាំទ្រពីធនាគារពិភពលោក (World Bank)។\n\n📍 ខេត្តគោលដៅ៖ ក្រចេះ, ត្បូងឃ្មុំ, កំពង់ធំ, កំពង់ឆ្នាំង, ពោធិ៍សាត់, បាត់ដំបង។\n\nជំនួយការ AI នេះដំណើរការ ២៤/៧ ដើម្បីជួយកសិករឱ្យទទួលបានបច្ចេកទេសកសិកម្មទំនើប និងដោះស្រាយជំងឺដំណាំសត្វទាន់ពេលវេលា។`;
+      const about = `ℹ️ **អំពីគម្រោង LASED III**\n\nគម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ជំហាន៣ (LASED III) ដឹកនាំដោយក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) និងក្រសួងរៀបចំដែនដី (MLMUPC) ក្រោមការគាំទ្រពីធនាគារពិភពលោក (World Bank)។\n\n📍 **ខេត្តគោលដៅចំនួន ១៤ រួមមាន៖**\nខេត្តកំពង់ឆ្នាំង, បាត់ដំបង, បន្ទាយមានជ័យ, ឧត្តរមានជ័យ, ក្រចេះ, ស្ទឹងត្រែង, រតនគិរី, មណ្ឌលគិរី, កំពង់ធំ, ត្បូងឃ្មុំ, កំពង់ស្ពឺ, ព្រះសីហនុ, កំពត, និងកែប។\n\nជំនួយការ AI នេះដំណើរការ ២៤/៧ ដើម្បីជួយកសិករឱ្យទទួលបានបច្ចេកទេសកសិកម្មទំនើប និងដោះស្រាយជំងឺដំណាំសត្វទាន់ពេលវេលា។`;
       await this.sendMessage(chatId, about, standardKeyboard);
       return;
     }
@@ -392,7 +392,7 @@ class TelegramBotManager {
           this.addLog('success', `បានវិភាគរូបភាព និងឆ្លើយតបរួចរាល់`, senderName);
           return;
         } catch (e: any) {
-          console.error('Error analyzing Telegram photo:', e);
+          console.warn('Error analyzing Telegram photo:', e);
           await this.sendMessage(chatId, 'សូមអភ័យទោស មានបញ្ហាក្នុងការវិភាគរូបភាព។ សូមសាកល្បងថតរូបម្តងទៀតឱ្យកាន់តែច្បាស់។');
           return;
         }
@@ -418,7 +418,7 @@ class TelegramBotManager {
           this.addLog('success', `បានឆ្លើយតបសារសម្លេងរួចរាល់`, senderName);
           return;
         } catch (e: any) {
-          console.error('Error processing voice message:', e);
+          console.warn('Error processing voice message:', e);
           await this.sendMessage(chatId, 'សូមអភ័យទោស មិនអាចបកប្រែសម្លេងបានច្បាស់ទេ។ សូមសាកល្បងនិយាយម្តងទៀត ឬវាយជាអក្សរ។');
           return;
         }
@@ -436,7 +436,7 @@ class TelegramBotManager {
           await this.sendMessage(chatId, reply, standardKeyboard);
           this.addLog('success', `បានឆ្លើយតបសំណួរអក្សររួចរាល់`, senderName);
         } catch (e: any) {
-          console.error('Error processing text message:', e);
+          console.warn('Error processing text message:', e);
           await this.sendMessage(chatId, 'សូមអភ័យទោស ប្រព័ន្ធមានបញ្ហាក្នុងការឆ្លើយតបនៅពេលនេះ។ សូមសាកល្បងសួរម្តងទៀត។');
         }
       }
