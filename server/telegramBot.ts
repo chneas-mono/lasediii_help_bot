@@ -38,6 +38,8 @@ class TelegramBotManager {
   private lastActive: string = '';
   private logs: TelegramLogEntry[] = [];
   private aiCaller: ((prompt: string, imageBase64?: string, audioBase64?: string) => Promise<string>) | null = null;
+  private ttsCaller: ((text: string) => Promise<Buffer | null>) | null = null;
+  private lastReplies: Map<string, string> = new Map();
 
   constructor() {
     this.loadConfig();
@@ -45,6 +47,10 @@ class TelegramBotManager {
 
   public setAiCaller(caller: (prompt: string, imageBase64?: string, audioBase64?: string) => Promise<string>) {
     this.aiCaller = caller;
+  }
+
+  public setTtsCaller(caller: (text: string) => Promise<Buffer | null>) {
+    this.ttsCaller = caller;
   }
 
   private loadConfig() {
@@ -202,6 +208,45 @@ class TelegramBotManager {
     }
   }
 
+  // Send native voice note or audio message to Telegram
+  public async sendVoice(chatId: number | string, audioBuffer: Buffer, caption?: string): Promise<boolean> {
+    if (!this.token) return false;
+    try {
+      // 1. Try sendVoice (renders as Telegram native playable voice message with waveform)
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      const voiceBlob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' });
+      form.append('voice', voiceBlob, 'voice.ogg');
+      if (caption) form.append('caption', caption.slice(0, 1000));
+
+      const res = await fetch(`https://api.telegram.org/bot${this.token}/sendVoice`, {
+        method: 'POST',
+        body: form
+      });
+      const data = await res.json();
+      if (data.ok) return true;
+
+      // 2. Fallback to sendAudio with wav format
+      const audioForm = new FormData();
+      audioForm.append('chat_id', String(chatId));
+      const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/wav' });
+      audioForm.append('audio', audioBlob, 'response.wav');
+      audioForm.append('title', 'ចម្លើយបច្ចេកទេស LASEDIII');
+      audioForm.append('performer', 'LASEDIII_Help_Bot');
+      if (caption) audioForm.append('caption', caption.slice(0, 1000));
+
+      const resAudio = await fetch(`https://api.telegram.org/bot${this.token}/sendAudio`, {
+        method: 'POST',
+        body: audioForm
+      });
+      const audioData = await resAudio.json();
+      return audioData.ok;
+    } catch (err: any) {
+      console.warn('Error sending voice to Telegram:', err?.message || err);
+      return false;
+    }
+  }
+
   // Send chat action (e.g. typing, upload_photo, record_voice)
   public async sendChatAction(chatId: number | string, action: 'typing' | 'upload_photo' | 'record_voice') {
     if (!this.token) return;
@@ -325,6 +370,41 @@ class TelegramBotManager {
 
   // Process a single Telegram update (used by both Polling and Webhook)
   public async processIncomingUpdate(update: any) {
+    // 0. Handle Inline Button Callback Queries (e.g. Listen Audio button)
+    if (update?.callback_query) {
+      const cb = update.callback_query;
+      const chatId = cb.message?.chat?.id;
+      const data = cb.data;
+      const senderName = cb.from?.first_name || 'កសិករ';
+
+      try {
+        await fetch(`https://api.telegram.org/bot${this.token}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            callback_query_id: cb.id,
+            text: '🔊 កំពុងរៀបចំសម្លេងបច្ចេកទេស...'
+          })
+        });
+      } catch (_) {}
+
+      if (data === 'tts_listen' && chatId) {
+        const textToSpeak = this.lastReplies.get(String(chatId)) || cb.message?.text || '';
+        if (textToSpeak && this.ttsCaller) {
+          this.addLog('voice', 'កសិករបានចុចប៊ូតុងស្តាប់សម្លេង', senderName);
+          await this.sendChatAction(chatId, 'record_voice');
+          const audioBuf = await this.ttsCaller(textToSpeak);
+          if (audioBuf) {
+            await this.sendVoice(chatId, audioBuf, '🔊 សម្លេងបច្ចេកទេស LASEDIII_Help_Bot');
+            this.addLog('success', 'បានផ្ញើសារសម្លេងជូនកសិកររួចរាល់', senderName);
+          } else {
+            await this.sendMessage(chatId, '🔊 សូមអភ័យទោស មិនអាចចាក់សម្លេងបានទេនៅពេលនេះ សូមអានខ្លឹមសារជាអក្សរ។');
+          }
+        }
+      }
+      return;
+    }
+
     const message = update?.message || update?.channel_post;
     if (!message) return;
 
@@ -342,28 +422,70 @@ class TelegramBotManager {
         [{ text: '🌳 ដំណាំកៅស៊ូ' }, { text: '🥜 ដំណាំចន្ទី' }],
         [{ text: '🐂 គោ និងក្របី' }, { text: '🐖 ជ្រូក' }],
         [{ text: '🐔 មាន់ទា' }, { text: '🐟 ត្រី' }],
-        [{ text: '📸 របៀបថតរូបស្កេនជំងឺ' }, { text: 'ℹ️ អំពីគម្រោង LASED III' }]
+        [{ text: '🔊 ស្តាប់សម្លេងចុងក្រោយ' }, { text: '📸 របៀបថតរូបស្កេនជំងឺ' }],
+        [{ text: 'ℹ️ អំពីគម្រោង LASED III' }]
       ],
       resize_keyboard: true,
       persistent: true
     };
 
-    // 1. Handle Commands & Text
+    const listenInlineMarkup = {
+      inline_keyboard: [
+        [{ text: '🔊 ចុចស្តាប់សម្លេង (Listen Audio)', callback_data: 'tts_listen' }]
+      ]
+    };
+
+    // 1. Handle Commands & Special Actions
     if (text.startsWith('/start')) {
       this.addLog('message', `ចុច /start`, senderName);
-      const welcome = `🌾 ជំរាបសួរ ${senderName}! 🙏\n\nខ្ញុំជា **LASEDIII_Help_Bot** ជំនួយការកសិកម្មឆ្លាតវៃសម្រាប់កសិករគម្រោង LASED III (គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ជំហាន៣)។\n\nខ្ញុំអាចជួយដោះស្រាយបញ្ហាបច្ចេកទេសជូនលោកអ្នកលើ៖\n🌱 **ដំណាំ ៤ មុខ៖** ស្រូវ, បន្លែ, កៅស៊ូ, ចន្ទី\n🐂 **សត្វចិញ្ចឹម ៥ មុខ៖** គោ, ក្របី, ជ្រូក, មាន់ទា, ត្រី\n\n💡 **របៀបប្រើប្រាស់ងាយៗ៖**\n- 💬 វាយសួរសំណួរ ឬជ្រើសរើសប្រធានបទខាងក្រោម\n- 🎙️ ចុចមីក្រូហ្វូនផ្ញើសារជាសម្លេង\n- 📸 ថតរូបស្លឹកដំណាំ ឬសត្វឈឺផ្ញើមក ដើម្បីឱ្យខ្ញុំវិភាគជំងឺ និងរកវិធីព្យាបាលភ្លាមៗ!`;
+      const welcome = `🌾 ជំរាបសួរ ${senderName}! 🙏\n\nខ្ញុំជា **LASEDIII_Help_Bot** ជំនួយការកសិកម្មឆ្លាតវៃសម្រាប់កសិករ គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ដំណាក់កាលទី៣ (LASED III) ដឹកនាំដោយក្រសួងរៀបចំដែនដី នគរូបនីយកម្ម និងសំណង់ (MLMUPC) និងសហការអនុវត្តដោយ ក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) ក្រោមការគាំទ្រហិរញ្ញវត្ថុពីធនាគារពិភពលោក (World Bank)។\n\nខ្ញុំអាចជួយដោះស្រាយបញ្ហាបច្ចេកទេសជូនលោកអ្នកលើ៖\n🌱 **ដំណាំ ៤ មុខ៖** ស្រូវ, បន្លែ, កៅស៊ូ, ចន្ទី\n🐂 **សត្វចិញ្ចឹម ៥ មុខ៖** គោ, ក្របី, ជ្រូក, មាន់ទា, ត្រី\n\n💡 **របៀបប្រើប្រាស់ងាយៗ៖**\n- 💬 វាយសួរសំណួរ ឬជ្រើសរើសប្រធានបទខាងក្រោម\n- 🎙️ ចុចមីក្រូហ្វូនផ្ញើសារជាសម្លេង\n- 📸 ថតរូបស្លឹកដំណាំ ឬសត្វឈឺផ្ញើមក ដើម្បីឱ្យខ្ញុំវិភាគជំងឺ និងរកវិធីព្យាបាលភ្លាមៗ!\n- 🔊 រាល់ចម្លើយមានប៊ូតុង "ចុចស្តាប់សម្លេង" ដើម្បីចាក់ស្តាប់ផ្ទាល់ក្នុង Telegram!`;
+      this.lastReplies.set(String(chatId), welcome);
       await this.sendMessage(chatId, welcome, standardKeyboard);
       return;
     }
 
     if (text === 'ℹ️ អំពីគម្រោង LASED III') {
-      const about = `ℹ️ **អំពីគម្រោង LASED III**\n\nគម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ជំហាន៣ (LASED III) ដឹកនាំដោយក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) និងក្រសួងរៀបចំដែនដី (MLMUPC) ក្រោមការគាំទ្រពីធនាគារពិភពលោក (World Bank)។\n\n📍 **ខេត្តគោលដៅចំនួន ១៤ រួមមាន៖**\nខេត្តកំពង់ឆ្នាំង, បាត់ដំបង, បន្ទាយមានជ័យ, ឧត្តរមានជ័យ, ក្រចេះ, ស្ទឹងត្រែង, រតនគិរី, មណ្ឌលគិរី, កំពង់ធំ, ត្បូងឃ្មុំ, កំពង់ស្ពឺ, ព្រះសីហនុ, កំពត, និងកែប។\n\nជំនួយការ AI នេះដំណើរការ ២៤/៧ ដើម្បីជួយកសិករឱ្យទទួលបានបច្ចេកទេសកសិកម្មទំនើប និងដោះស្រាយជំងឺដំណាំសត្វទាន់ពេលវេលា។`;
-      await this.sendMessage(chatId, about, standardKeyboard);
+      const about = `ℹ️ **អំពីគម្រោង LASED III**\n\nគម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ដំណាក់កាលទី៣ (LASED III) ដឹកនាំដោយក្រសួងរៀបចំដែនដី នគរូបនីយកម្ម និងសំណង់ (MLMUPC) និងសហការអនុវត្តដោយ ក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) ក្រោមការគាំទ្រហិរញ្ញវត្ថុពីធនាគារពិភពលោក (World Bank)។\n\n📍 **ខេត្តគោលដៅចំនួន ១៤ រួមមាន៖**\nខេត្តកំពង់ឆ្នាំង, បាត់ដំបង, បន្ទាយមានជ័យ, ឧត្តរមានជ័យ, ក្រចេះ, ស្ទឹងត្រែង, រតនគិរី, មណ្ឌលគិរី, កំពង់ធំ, ត្បូងឃ្មុំ, កំពង់ស្ពឺ, ព្រះសីហនុ, កំពត, និងកែប។\n\nជំនួយការ AI នេះដំណើរការ ២៤/៧ ដើម្បីជួយកសិករឱ្យទទួលបានបច្ចេកទេសកសិកម្មទំនើប និងដោះស្រាយជំងឺដំណាំសត្វទាន់ពេលវេលា។`;
+      this.lastReplies.set(String(chatId), about);
+      await this.sendMessage(chatId, about, listenInlineMarkup);
+      return;
+    }
+
+    // Direct Voice Listening Request
+    if (text === '🔊 ស្តាប់សម្លេងចុងក្រោយ' || text === '/voice' || text === '/listen' || text === 'ស្តាប់' || text === 'ស្តាប់សម្លេង' || text === 'ចាក់សម្លេង') {
+      const lastText = this.lastReplies.get(String(chatId));
+      if (!lastText) {
+        await this.sendMessage(chatId, 'លោកអ្នកពុំទាន់មានសំណួរ ឬចម្លើយមុននេះឡើយ។ សូមសួរសំណួរកសិកម្មជាមុនសិន!', standardKeyboard);
+        return;
+      }
+      if (this.ttsCaller) {
+        await this.sendChatAction(chatId, 'record_voice');
+        await this.sendMessage(chatId, '🔊 កំពុងរៀបចំសម្លេងបច្ចេកទេសជូន...');
+        const audioBuf = await this.ttsCaller(lastText);
+        if (audioBuf) {
+          await this.sendVoice(chatId, audioBuf, '🔊 សម្លេងបច្ចេកទេស LASEDIII_Help_Bot');
+          return;
+        }
+      }
+      await this.sendMessage(chatId, '🔊 មិនអាចចាក់សម្លេងបានទេនៅពេលនេះ សូមអានខ្លឹមសារជាអក្សរ។');
+      return;
+    }
+
+    // Question explaining why Telegram app previously lacked a speaker button
+    if (
+      (text.includes('ស្តាប់') && text.includes('telegram')) || 
+      (text.includes('telegram') && text.includes('សម្លេង')) || 
+      text.includes('អត់មានកន្លែងចុចស្តាប់សម្លេង')
+    ) {
+      const explainVoice = `🌾 **ជម្រាបជូនលោកពូ អ្នកមីង បងប្អូនកសិករអំពីការស្តាប់សម្លេងក្នុង Telegram៖**\n\nនៅក្នុងកម្មវិធី Telegram App ធម្មតា សារជាអក្សរពុំមានប៊ូតុង Speaker (Web Speech) ស្វ័យប្រវត្តិតាមលំនាំដើមដូចនៅលើ Web Browser ទេ ដោយសារ Telegram ដំណើរការជា Native App ដាច់ដោយឡែក។\n\n🎙️ **ប៉ុន្តែនៅក្នុង LASEDIII_Help_Bot នេះ បងប្អូនអាចស្តាប់សម្លេងបានយ៉ាងងាយស្រួល ៣ របៀប៖**\n\n១. **ចុចប៊ូតុង "🔊 ចុចស្តាប់សម្លេង"៖** រាល់ចម្លើយរបស់ខ្ញុំ មានភ្ជាប់ប៊ូតុងនេះនៅខាងក្រោម។ គ្រាន់តែចុចលើវា ខ្ញុំនឹងផ្ញើសារជាសម្លេង (Voice Note) ជូនភ្លាមៗ!\n២. **ឆ្លើយជាសម្លេងស្វ័យប្រវត្តិ៖** ប្រសិនបើបងប្អូនផ្ញើសារសម្លេងសួរមកកាន់ខ្ញុំ ខ្ញុំនឹងឆ្លើយតបទាំងជាអក្សរ និងផ្ញើសារសម្លេងជូនវិញដោយស្វ័យប្រវត្តិ!\n៣. **វាយពាក្យបញ្ជា៖** អាចចុចលើពាក្យ "🔊 ស្តាប់សម្លេងចុងក្រោយ" ឬវាយពាក្យ **"ស្តាប់សម្លេង"** ឬ **/voice** ដើម្បីស្តាប់ចម្លើយចុងក្រោយគ្រប់ពេល។`;
+      this.lastReplies.set(String(chatId), explainVoice);
+      await this.sendMessage(chatId, explainVoice, listenInlineMarkup);
       return;
     }
 
     if (text === '📸 របៀបថតរូបស្កេនជំងឺ') {
       const guide = `📸 **របៀបថតរូបស្កេនជំងឺដំណាំ និងសត្វ៖**\n\n១. ថតយករូបភាពស្លឹក ផ្លែ ឬដើមដំណាំដែលមានស្នាមជំងឺឱ្យច្បាស់ល្អ ក្រោមពន្លឺថ្ងៃធម្មជាតិ\n២. បើសត្វឈឺ សូមថតស្បែក ដុំពក ភ្នែក ឬអាការៈមិនប្រក្រតី\n៣. ផ្ញើរូបភាពមកកាន់ Bot នេះផ្ទាល់\n\n⚡ ប្រព័ន្ធ AI នឹងវិភាគឈ្មោះជំងឺ រោគសញ្ញា ដំណោះស្រាយបន្ទាន់ ៣ ជំហាន វិធីព្យាបាលបែបធម្មជាតិ និងថ្នាំសុវត្ថិភាពភ្លាមៗ!`;
+      this.lastReplies.set(String(chatId), guide);
       await this.sendMessage(chatId, guide, standardKeyboard);
       return;
     }
@@ -388,7 +510,8 @@ class TelegramBotManager {
 សូមឆ្លើយជាភាសាខ្មែរ រួសរាយ រាក់ទាក់ ច្បាស់លាស់ ងាយយល់។`;
           
           const reply = await this.aiCaller(prompt, downloaded.base64);
-          await this.sendMessage(chatId, reply, standardKeyboard);
+          this.lastReplies.set(String(chatId), reply);
+          await this.sendMessage(chatId, reply, listenInlineMarkup);
           this.addLog('success', `បានវិភាគរូបភាព និងឆ្លើយតបរួចរាល់`, senderName);
           return;
         } catch (e: any) {
@@ -414,8 +537,19 @@ class TelegramBotManager {
             undefined,
             downloaded.base64
           );
-          await this.sendMessage(chatId, reply, standardKeyboard);
+          this.lastReplies.set(String(chatId), reply);
+          await this.sendMessage(chatId, reply, listenInlineMarkup);
           this.addLog('success', `បានឆ្លើយតបសារសម្លេងរួចរាល់`, senderName);
+
+          // Automatically send voice reply for farmers who used voice note
+          if (this.ttsCaller) {
+            await this.sendChatAction(chatId, 'record_voice');
+            const audioBuf = await this.ttsCaller(reply);
+            if (audioBuf) {
+              await this.sendVoice(chatId, audioBuf, '🔊 សម្លេងបច្ចេកទេស LASEDIII_Help_Bot');
+              this.addLog('voice', 'បានផ្ញើសារសម្លេងឆ្លើយតបស្វ័យប្រវត្តិ', senderName);
+            }
+          }
           return;
         } catch (e: any) {
           console.warn('Error processing voice message:', e);
@@ -433,7 +567,8 @@ class TelegramBotManager {
       if (this.aiCaller) {
         try {
           const reply = await this.aiCaller(text);
-          await this.sendMessage(chatId, reply, standardKeyboard);
+          this.lastReplies.set(String(chatId), reply);
+          await this.sendMessage(chatId, reply, listenInlineMarkup);
           this.addLog('success', `បានឆ្លើយតបសំណួរអក្សររួចរាល់`, senderName);
         } catch (e: any) {
           console.warn('Error processing text message:', e);

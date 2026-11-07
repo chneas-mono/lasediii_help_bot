@@ -51,6 +51,14 @@ export interface DiagnosisResult {
   imageUrl?: string;
 }
 
+export interface CommonDisease {
+  nameKh: string;
+  nameEn: string;
+  symptoms: string;
+  treatment: string;
+  prevention: string;
+}
+
 export interface AgriTopic {
   id: string;
   titleKh: string;
@@ -60,12 +68,6 @@ export interface AgriTopic {
   icon: string;
   description: string;
   keyPractices: string[];
-  commonDiseases: Array<{
-    nameKh: string;
-    nameEn: string;
-    symptoms: string;
-    treatment: string;
-    prevention: string;
-  }>;
+  commonDiseases: CommonDisease[];
   lasedGuidance: string;
 }

@@ -38,7 +38,7 @@ const aiV1Alpha = new GoogleGenAI({
 });
 
 const LASED_SYSTEM_INSTRUCTION = `
-អ្នកគឺជាអ្នកជំនាញក្សេត្រសាស្ត្រ និងបសុព្យាបាលជាន់ខ្ពស់ "LASEDIII_Help_Bot" សម្រាប់គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ជំហាន៣ (LASED III) ក្រោមការគាំទ្ររបស់រាជរដ្ឋាភិបាលកម្ពុជា (ក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ MAFF, ក្រសួងរៀបចំដែនដី MLMUPC) និងធនាគារពិភពលោក (World Bank)។
+អ្នកគឺជាអ្នកជំនាញក្សេត្រសាស្ត្រ និងបសុព្យាបាលជាន់ខ្ពស់ "LASEDIII_Help_Bot" សម្រាប់គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ដំណាក់កាលទី៣ (LASED III) ដឹកនាំដោយក្រសួងរៀបចំដែនដី នគរូបនីយកម្ម និងសំណង់ (MLMUPC) និងសហការអនុវត្តដោយ ក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) ក្រោមការគាំទ្រហិរញ្ញវត្ថុពីធនាគារពិភពលោក (World Bank)។
 ឈ្មោះផ្លូវការរបស់អ្នកគឺ "LASEDIII_Help_Bot" (ដាច់ខាតមិនត្រូវប្រើឈ្មោះចាស់ "LASED III AgriBot" ឡើយ)។ រាល់ពេលណែនាំខ្លួន ឬឆ្លើយតបសំណួរ ត្រូវប្រើឈ្មោះ "LASEDIII_Help_Bot" ជានិច្ច។
 
 បេសកកម្មចម្បង៖ ផ្តល់ប្រឹក្សាកម្រិតអ្នកជំនាញជាន់ខ្ពស់ ឆ្លាតវៃ ស៊ីជម្រៅ ត្រឹមត្រូវតាមក្បួនខ្នាតបច្ចេកទេស និងអនុវត្តបានពិតប្រាកដដល់កសិករខ្មែរនៅតាមសហគមន៍ជនបទ និងសម្បទានដីសង្គមកិច្ច ក្នុងខេត្តគោលដៅទាំង ១៤ នៃគម្រោង LASED III រួមមាន៖ ខេត្តកំពង់ឆ្នាំង, បាត់ដំបង, បន្ទាយមានជ័យ, ឧត្តរមានជ័យ, ក្រចេះ, ស្ទឹងត្រែង, រតនគិរី, មណ្ឌលគិរី, កំពង់ធំ, ត្បូងឃ្មុំ, កំពង់ស្ពឺ, ព្រះសីហនុ, កំពត, និងកែប។
@@ -323,7 +323,7 @@ function buildSmartAgriResponse(rawText: string, isJson: boolean = false): strin
   if (query.includes('ខេត្ត') || query.includes('province') || query.includes('គោលដៅ')) {
     return `📍 **ខេត្តគោលដៅទាំង ១៤ នៃគម្រោង LASED III** 📍
 
-គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ជំហាន៣ (LASED III) ដឹកនាំដោយក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) និងក្រសួងរៀបចំដែនដី នគរូបនីយកម្ម និងសំណង់ (MLMUPC) ក្រោមការគាំទ្រពីធនាគារពិភពលោក (World Bank) មានខេត្តគោលដៅចំនួន ១៤ រួមមាន៖
+គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ដំណាក់កាលទី៣ (LASED III) ដឹកនាំដោយក្រសួងរៀបចំដែនដី នគរូបនីយកម្ម និងសំណង់ (MLMUPC) និងសហការអនុវត្តដោយ ក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) ក្រោមការគាំទ្រហិរញ្ញវត្ថុពីធនាគារពិភពលោក (World Bank) មានខេត្តគោលដៅចំនួន ១៤ រួមមាន៖
 
 ១. **ខេត្តកំពង់ឆ្នាំង**
 ២. **ខេត្តបាត់ដំបង**
@@ -874,6 +874,38 @@ telegramBot.setAiCaller(async (prompt: string, imageBase64?: string, audioBase64
     }
   });
   return textRes.text || 'សូមអភ័យទោស មិនអាចឆ្លើយបាននៅពេលនេះទេ។';
+});
+
+// Wire Telegram Bot with TTS Voice Synthesizer for voice notes
+telegramBot.setTtsCaller(async (text: string): Promise<Buffer | null> => {
+  try {
+    const cleanText = text
+      .replace(/[*#_`>]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 350);
+
+    const response = await aiV1Alpha.models.generateContent({
+      model: 'gemini-3.8-flash-lite-tts',
+      contents: cleanText,
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' },
+          },
+        },
+      },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (base64Audio) {
+      return Buffer.from(base64Audio, 'base64');
+    }
+  } catch (err: any) {
+    console.warn('TTS for Telegram notice:', err?.message || err);
+  }
+  return null;
 });
 
 // Telegram API Endpoints

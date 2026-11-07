@@ -212,13 +212,13 @@ export default function App() {
               />
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent flex flex-col justify-end p-6 sm:p-8 text-white">
                 <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
-                  គម្រោង LASED III · ក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ
+                  គម្រោង LASED III · ក្រសួងរៀបចំដែនដី (MLMUPC) & ក្រសួងកសិកម្ម (MAFF)
                 </span>
                 <h2 className="text-xl sm:text-3xl font-bold">
-                  គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ជំហាន៣
+                  គម្រោងបែងចែកដីដើម្បីសង្គមកិច្ច និងការអភិវឌ្ឍសេដ្ឋកិច្ច ដំណាក់កាលទី៣ (LASED III)
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-200 mt-2 max-w-2xl leading-relaxed">
-                  លើកកម្ពស់សន្តិសុខកាន់កាប់ដីធ្លី ការអភិវឌ្ឍជីវភាពកសិកម្ម និងការគ្រប់គ្រងធនធានធម្មជាតិប្រកបដោយចីរភាព សម្រាប់សហគមន៍ជនបទ និងជនជាតិដើមភាគតិចនៅកម្ពុជា។
+                  ដឹកនាំដោយក្រសួងរៀបចំដែនដី នគរូបនីយកម្ម និងសំណង់ (MLMUPC) និងសហការអនុវត្តដោយ ក្រសួងកសិកម្ម រុក្ខាប្រមាញ់ និងនេសាទ (MAFF) ក្រោមការគាំទ្រហិរញ្ញវត្ថុពីធនាគារពិភពលោក (World Bank)។ លើកកម្ពស់សន្តិសុខកាន់កាប់ដីធ្លី ការអភិវឌ្ឍជីវភាពកសិកម្ម និងការគ្រប់គ្រងធនធានធម្មជាតិប្រកបដោយចីរភាព។
                 </p>
               </div>
             </div>
